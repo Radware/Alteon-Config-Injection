@@ -1,0 +1,108 @@
+- hosts: localhost
+  vars_files:
+    - vars/alteon_params.yml
+  tasks:
+  - name: install genisoimage
+    package:
+      name: genisoimage
+      state: present
+  
+  - name: Create Alteon config file 
+    copy:
+      dest: "/tmp/user-data-emulation.txt"
+      content: |
+        {
+          "MgmtConfig": {
+            "MgmtIP": "1.1.1.1",
+            "MgmtMask": "255.255.255.0",
+            "MgmtGW": "1.1.1.254",
+            "MgmtIPV6": "2001::100",
+            "MgmtPrefixV6": "64",
+            "MgmtGWV6": "2001::1",
+            "DHCP": "false"
+          },
+          "UserCredentials": {
+            "name": "admin",
+            "password": "radware2",
+            "cos": "admin"
+          },
+          "vaResources": {
+            "ADCCPU": "2",
+            "ADCRAM": "4",
+            "ADCHDD": "9",
+            "TD": "0",
+            "AWCPU": "0"
+          },
+          "RawConfig": {
+            "ConfigArray": [
+              "/c/sys/idle 5"
+            ]
+          }
+        }
+
+  - name: Create ISO file
+    command: genisoimage -o /tmp/alteon_ipv6_ansible.iso -J -R -l /tmp/user-data-emulation.txt
+
+  - name: Copy file to datastore
+    vsphere_copy:
+      hostname: "{{ vcenter_hostname }}"
+      username: "{{ vcenter_username }}"
+      password: "{{ vcenter_password }}"
+      src: /tmp/alteon_ipv6_ansible.iso
+      datacenter: Main
+      datastore: Datastore1
+      path: /Folder/alteon_ipv6_ansible.iso
+      validate_certs: no
+    delegate_to: localhost
+  
+  - name: deploy from ovf
+    vmware_deploy_ovf:
+      hostname: "{{ vcenter_hostname }}"
+      username: "{{ vcenter_username }}"
+      password: "{{ vcenter_password }}"
+      ovf: /tmp/AlteonOS-32.6.1.0_rls_206.ova
+      name: "{{ vm_name }}"
+      validate_certs: no
+      datacenter: Main
+      datastore: Datastore1
+      power_on: no
+      networks: {"Management": "VM Network", "Clients": "VM Network", "Servers": "VM Network"}
+    delegate_to: localhost
+
+  - name: Set cdrom to datastore
+    vmware_guest:
+      hostname: "{{ vcenter_hostname }}"
+      username: "{{ vcenter_username }}"
+      password: "{{ vcenter_password }}"
+      validate_certs: no
+      name: "{{ vm_name }}"
+      folder: /
+      datacenter: Main
+      datastore: Datastore1
+      state: present
+      hardware:
+        memory_mb: 4096
+        num_cpus: 4
+      cdrom:
+        type: iso
+        iso_path: "[Datastore1] /Folder/alteon_ipv6_ansible.iso"
+    delegate_to: localhost
+
+  - name: power on Alteon
+    vmware_guest:
+      hostname: "{{ vcenter_hostname }}"
+      username: "{{ vcenter_username }}"
+      password: "{{ vcenter_password }}"
+      validate_certs: no
+      name: "{{ vm_name }}"
+      state: poweredon
+      folder: /
+      datacenter: Main
+      datastore: Datastore1
+      hardware:
+        memory_mb: 4096
+        num_cpus: 4
+      cdrom:
+        type: iso
+        iso_path: "[Datastore1] /Folder/alteon_ipv6_ansible.iso"
+    delegate_to: localhost
